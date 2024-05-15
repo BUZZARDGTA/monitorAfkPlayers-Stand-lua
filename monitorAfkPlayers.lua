@@ -10,8 +10,8 @@ function pluralize(word, count)
     end
 end
 
-local CURRENT_SCRIPT_VERSION <const> = "0.5"
-local TITLE <const> = "Monitor AFK players v" .. CURRENT_SCRIPT_VERSION
+local CURRENT_SCRIPT_VERSION <const> = "0.5.1"
+local TITLE <const> = "Monitor AFK Players v" .. CURRENT_SCRIPT_VERSION
 
 local MY_ROOT <const> = menu.my_root()
 
@@ -95,8 +95,8 @@ MY_ROOT:toggle_loop("Monitor AFK Players", {}, "Checks if the player don't move 
         -- This is so that if the user dynamically changes 'cooldownTimer' value, it will updates in real time.
         local currentTime = 0
         while currentTime < cooldownTimer do
-            util.yield(1000) -- Sleep for 1 second
-            currentTime = currentTime + 1 -- Increment current time by 1 second
+            util.yield(1000)
+            currentTime = currentTime + 1
         end
     end
 
