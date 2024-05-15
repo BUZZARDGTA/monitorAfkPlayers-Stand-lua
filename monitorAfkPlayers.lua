@@ -10,7 +10,7 @@ function pluralize(word, count)
     end
 end
 
-local CURRENT_SCRIPT_VERSION <const> = "0.4"
+local CURRENT_SCRIPT_VERSION <const> = "0.5"
 local TITLE <const> = "Monitor AFK players v" .. CURRENT_SCRIPT_VERSION
 
 local MY_ROOT <const> = menu.my_root()
@@ -82,8 +82,6 @@ local function logAfkPlayerDetection(pedPid, pedPos, totalAfkTime, hideNotificat
 end
 
 MY_ROOT:toggle_loop("Monitor AFK Players", {}, "Checks if the player don't move for a given ammount of time.", function()
-    util.yield() -- No need to spam it.
-
     players.on_leave(function(pedPid)
         if isMenuAfkPlayerRefValid(pedPid) then
             deleteMenuAfkPlayerRef(pedPid)
@@ -230,6 +228,13 @@ MY_ROOT:toggle_loop("Monitor AFK Players", {}, "Checks if the player don't move 
 
         :: CONTINUE ::
     end
+end, function()
+    for pedPid, _ in pairs(playerList) do
+        if isMenuAfkPlayerRefValid(pedPid) then
+            deleteMenuAfkPlayerRef(pedPid)
+        end
+        playerList[pedPid] = nil
+    end
 end)
 local OPTIONS <const> = MY_ROOT:list("Options")
 OPTIONS:divider("---------------------------------------")
@@ -241,7 +246,7 @@ end)
 OPTIONS:slider("Cooldown Timer", {"monitorAfkPlayers_cooldownTimer"}, "The time in second(s) before checking again for AFK players after at least one was found.", 0, 60, 1, 1, function(value)
     cooldownTimer = value
 end)
-OPTIONS:toggle("Everyone AFK at launch", {}, "When enabled, sets all players as AFK when the script starts.", function(toggle)
+OPTIONS:toggle("Everyone AFK at Launch", {}, "When enabled, sets all players as AFK when the script starts.", function(toggle)
     everyoneAfkAtLaunch = toggle
 end, everyoneAfkAtLaunch)
 OPTIONS:toggle("Include Death Events", {}, "When enabled, AFK detection continues even if a player's character dies.", function(toggle)
