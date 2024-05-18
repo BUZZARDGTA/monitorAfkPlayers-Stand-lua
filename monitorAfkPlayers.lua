@@ -1,8 +1,11 @@
 -- Author: IB_U_Z_Z_A_R_Dl
+-- Thanks to @someoneidfk from Stand's Discord server in #Programming channel,
+-- Helped me with the "focus" code from Stand's API.
+
 
 util.require_natives("1660775568-uno")
 
-function pluralize(word, count)
+local function pluralize(word, count)
     if count > 1 then
         return word .. "s"
     else
@@ -10,10 +13,15 @@ function pluralize(word, count)
     end
 end
 
-local CURRENT_SCRIPT_VERSION <const> = "0.5.1"
-local TITLE <const> = "Monitor AFK Players v" .. CURRENT_SCRIPT_VERSION
+local function roundUp(num, decimalPlaces)
+    local multiplier = 10 ^ (decimalPlaces or 0)
+    return math.ceil(num * multiplier) / multiplier
+end
 
+local CURRENT_SCRIPT_VERSION <const> = "0.6"
+local TITLE <const> = "Monitor AFK Players v" .. CURRENT_SCRIPT_VERSION
 local MY_ROOT <const> = menu.my_root()
+local STAND_PLAYERLIST_COMMANDREF <const> = menu.ref_by_command_name("playerlist")
 
 MY_ROOT:divider("<- " ..  TITLE .. " ->")
 
@@ -26,68 +34,150 @@ local logInConsole = false
 local includeDeathEvents = true
 local includeRagdollEvents = true
 local ignoreInteriors = true
+local has_performed_everyoneAfkAtLaunch = false
 local is_any_afk_found_in_iteration = false
+local is_monitor_initialized = false
+local callback_playersOnLeave
+local signal_stopTickHandler
 
-local function isMenuAfkPlayerRefValid(pedPid)
-    if not playerList[pedPid] then
+local function isMenuAfkPlayerRefValid(player_id)
+    if not (
+        playerList[player_id]
+        and playerList[player_id].playerCommandRef
+    ) then
         return false
     end
 
-    return menu.is_ref_valid(menu.ref_by_rel_path(MY_ROOT, playerList[pedPid].name))
+    return menu.is_ref_valid(playerList[player_id].playerCommandRef)
 end
 
-local function deleteMenuAfkPlayerRef(pedPid)
-    menu.delete(menu.ref_by_rel_path(MY_ROOT, playerList[pedPid].name))
+local function createMenuAfkPlayerRef(player_id, formatedPlayerLastMovementTime, totalAfkTime, player_position)
+    playerList[player_id].playerCommandRef = MY_ROOT:list(players.get_name_with_tags(player_id), {}, string.format(
+        "Last Movement: %s"
+        .. "\nTotal %s AFK: %d\n"
+        .. "\nPlayer Coordinates:"
+        .. "\nX: %.20f"
+        .. "\nY: %.20f"
+        .. "\nZ: %.20f",
+        formatedPlayerLastMovementTime,
+        pluralize("second", totalAfkTime),
+        totalAfkTime,
+        player_position.x,
+        player_position.y,
+        player_position.z
+    ), function()
+        menu.player_root(player_id):trigger()
+        playerList[player_id].is_stand_player_commandRef_opened = true
+    end)
 end
 
-local function updateMenuAfkPlayerRefHelpText(pedPid, pedPos, totalAfkTime)
-    menu.set_help_text(menu.ref_by_rel_path(MY_ROOT, playerList[pedPid].name),
-        "Last Movement: " .. os.date("%H:%M:%S", playerList[pedPid].lastMovement_time) .. " | Total " .. pluralize("second", totalAfkTime) .. " AFK: " .. totalAfkTime
-        .. "\n\nPlayer Coordinates:\nX: " .. pedPos.x .. "\nY: " .. pedPos.y .. "\nZ: " .. pedPos.z
-    )
+local function deleteMenuAfkPlayerRef(player_id)
+    menu.delete(playerList[player_id].playerCommandRef)
 end
 
-local function logAfkPlayerDetection(pedPid, pedPos, totalAfkTime, hideNotifications)
-    hideNotifications = hideNotifications or false
+local function updateMenuAfkPlayerRefHelpText(player_id, formatedPlayerLastMovementTime, totalAfkTime, player_position)
+    menu.set_menu_name(playerList[player_id].playerCommandRef, players.get_name_with_tags(player_id))
+    menu.set_help_text(playerList[player_id].playerCommandRef, string.format(
+        "Last Movement: %s"
+        .. "\nTotal %s AFK: %d\n"
+        .. "\nPlayer Coordinates:"
+        .. "\nX: %.20f"
+        .. "\nY: %.20f"
+        .. "\nZ: %.20f",
+        formatedPlayerLastMovementTime,
+        pluralize("second", totalAfkTime),
+        totalAfkTime,
+        player_position.x,
+        player_position.y,
+        player_position.z
+    ))
+end
 
-    if isMenuAfkPlayerRefValid(pedPid) then
-        updateMenuAfkPlayerRefHelpText(pedPid, pedPos, totalAfkTime)
-    else
-        MY_ROOT:list(playerList[pedPid].name, {},
-            "Last Movement: " .. os.date("%H:%M:%S", playerList[pedPid].lastMovement_time) .. " | Total " .. pluralize("second", totalAfkTime) .. " AFK: " .. totalAfkTime
-            .. "\n\nPlayer Coordinates:\nX: " .. pedPos.x .. "\nY: " .. pedPos.y .. "\nZ: " .. pedPos.z
-        , function()
-            menu.player_root(pedPid):trigger()
-        end)
-    end
-
-    if hideNotifications then
-        return
-    end
-
+local function logAfkPlayerDetection(player_id, formatedPlayerLastMovementTime, totalAfkTime)
     if logInToast then
-        util.toast(
-            "[Lua Script]: " .. TITLE .. "\n"
-            .. "\nPlayer " .. playerList[pedPid].name .. " is detected AFK!\n"
-            .. "\nLast Movement: " .. os.date("%H:%M:%S", playerList[pedPid].lastMovement_time)
-            .. "\nTotal Time AFK: " .. totalAfkTime .. pluralize(" second", totalAfkTime)
-        )
+        util.toast(string.format(
+            "[Lua Script]: %s\n"
+            .. "\nPlayer %s is detected AFK!\n"
+            .. "\nLast Movement: %s"
+            .. "\nTotal %s AFK: %d",
+            TITLE,
+            playerList[player_id].name,
+            formatedPlayerLastMovementTime,
+            pluralize("second", totalAfkTime),
+            totalAfkTime
+        ))
     end
 
     if logInConsole then
-        local paddedPlayerName = string.format("%-16s", playerList[pedPid].name)
-        print("[Lua Script]: " .. TITLE .. " | Player " .. paddedPlayerName .. " is detected AFK! | Last Movement: " .. os.date("%H:%M:%S", playerList[pedPid].lastMovement_time) ..  " | Total " .. pluralize("second", totalAfkTime) ..  " AFK: " .. totalAfkTime)
-        util.yield()
+        print(string.format(
+            "[Lua Script]: %s | Player %-16s is detected AFK! | Last Movement: %s | Total %s AFK: %d",
+            TITLE,
+            playerList[player_id].name,
+            formatedPlayerLastMovementTime,
+            pluralize("second", totalAfkTime),
+            totalAfkTime
+        ))
     end
 end
 
-MY_ROOT:toggle_loop("Monitor AFK Players", {}, "Checks if the player don't move for a given ammount of time.", function()
-    players.on_leave(function(pedPid)
-        if isMenuAfkPlayerRefValid(pedPid) then
-            deleteMenuAfkPlayerRef(pedPid)
+local function handle_playersOnLeave(player_id)
+    if isMenuAfkPlayerRefValid(player_id) then
+        deleteMenuAfkPlayerRef(player_id)
+    end
+
+    playerList[player_id] = nil
+end
+
+local function handle_tickHandler()
+    if signal_stopTickHandler then
+        return
+    end
+
+    for player_id, player in pairs(playerList) do
+        local current_menu_commandRef = menu.get_current_menu_list()
+        if
+            player.is_stand_player_commandRef_opened
+            and current_menu_commandRef
+            and current_menu_commandRef:isValid()
+            and (
+                current_menu_commandRef:equals(STAND_PLAYERLIST_COMMANDREF)
+                or (
+                    player.playerCommandRef
+                    and player.playerCommandRef:isValid()
+                    and current_menu_commandRef:equals(player.playerCommandRef)
+                )
+            )
+        then
+            player.is_stand_player_commandRef_opened = false
+            if isMenuAfkPlayerRefValid(player_id) then
+                player.playerCommandRef:focus()
+            else
+                MY_ROOT:trigger()
+            end
         end
-        playerList[pedPid] = nil
-    end)
+    end
+end
+
+local MONITOR_AFK_PLAYERS <const> = MY_ROOT:toggle_loop("Monitor AFK Players", {}, "Checks if the player don't move for a given ammount of time.", function()
+    if not is_monitor_initialized then
+        is_monitor_initialized = true
+
+        callback_playersOnLeave = players.on_leave(handle_playersOnLeave)
+
+        signal_stopTickHandler = false
+        util.create_tick_handler(handle_tickHandler)
+    end
+
+    -- This code achieves the same task as the callback version above, but with reduced efficiency.
+    --for player_id, _ in pairs(playerList) do
+    --    if not players.exists(player_id) then
+    --        if isMenuAfkPlayerRefValid(player_id) then
+    --            deleteMenuAfkPlayerRef(player_id)
+    --        end
+    --
+    --        playerList[player_id] = nil
+    --    end
+    --end
 
     if is_any_afk_found_in_iteration then
         is_any_afk_found_in_iteration = false
@@ -100,141 +190,173 @@ MY_ROOT:toggle_loop("Monitor AFK Players", {}, "Checks if the player don't move 
         end
     end
 
-    for players.list() as pedPid do
-        if
-            not NETWORK.NETWORK_IS_PLAYER_CONNECTED(pedPid)
-            or not NETWORK.NETWORK_IS_PLAYER_ACTIVE(pedPid)
-            or NETWORK.NETWORK_IS_PLAYER_FADING(pedPid)
-            or NETWORK.IS_PLAYER_IN_CUTSCENE(pedPid)
-            or NETWORK.NETWORK_IS_PLAYER_IN_MP_CUTSCENE(pedPid)
-        then
-            goto CONTINUE
-        end
+    for players.list() as player_id do
+        local playerPed = PLAYER.GET_PLAYER_PED(player_id)
 
         if
-            ignoreInteriors
-            and players.is_in_interior(pedPid)
+            not players.exists(player_id)
+            or not NETWORK.NETWORK_IS_PLAYER_CONNECTED(player_id)
+            or not NETWORK.NETWORK_IS_PLAYER_ACTIVE(player_id)
+            or NETWORK.NETWORK_IS_PLAYER_FADING(player_id)
+            or NETWORK.IS_PLAYER_IN_CUTSCENE(player_id)
+            or NETWORK.NETWORK_IS_PLAYER_IN_MP_CUTSCENE(player_id)
+            or (
+                ignoreInteriors
+                and players.is_in_interior(player_id)
+            )
+            or playerPed == 0
         then
-            if isMenuAfkPlayerRefValid(pedPid) then
-                deleteMenuAfkPlayerRef(pedPid)
+            if isMenuAfkPlayerRefValid(player_id) then
+                deleteMenuAfkPlayerRef(player_id)
             end
-            playerList[pedPid] = nil
+            playerList[player_id] = nil
+
             goto CONTINUE
         end
 
 
-        local pPed = PLAYER.GET_PLAYER_PED(pedPid)
-        if pPed == 0 then
-            goto CONTINUE
-        end
+        local player_position = players.get_position(player_id)
+        local totalAfkTime = 0
+        local formatedPlayerLastMovementTime = "Unknown"
 
-        local pedPos = ENTITY.GET_ENTITY_COORDS(pPed, true)
-
-        if not playerList[pedPid] then
-            playerList[pedPid] = {
-                name = players.get_name(pedPid),
-                lastMovement_time = os.time(),
+        if not playerList[player_id] then
+            playerList[player_id] = {
+                playerCommandRef = nil,
+                is_stand_player_commandRef_opened = false,
+                name = players.get_name(player_id),
+                found_time = os.time(),
+                lastMovement_time = nil,
                 isDead = false,
                 hasRespawnedFromDeath_time = nil,
                 isInRagdoll = false,
                 hasStandUpFromRagdoll_time = nil,
-                x = pedPos.x,
-                y = pedPos.y,
-                z = pedPos.z
+                x = player_position.x,
+                y = player_position.y,
+                z = player_position.z
             }
 
-            if everyoneAfkAtLaunch then
-                logAfkPlayerDetection(pedPid, pedPos, 0, true)
+            if
+                everyoneAfkAtLaunch
+                and not has_performed_everyoneAfkAtLaunch
+            then
+                createMenuAfkPlayerRef(player_id, formatedPlayerLastMovementTime, totalAfkTime, player_position)
             end
 
             goto CONTINUE
         end
 
         if includeDeathEvents then
-            if PLAYER.IS_PLAYER_DEAD(pedPid) then
-                playerList[pedPid].isDead = true
-                playerList[pedPid].hasRespawnedFromDeath_time = os.time()
-            elseif playerList[pedPid].isDead then
+            if PLAYER.IS_PLAYER_DEAD(player_id) then
+                playerList[player_id].isDead = true
+                playerList[player_id].hasRespawnedFromDeath_time = os.time()
+            elseif playerList[player_id].isDead then
                 if
-                    PLAYER.IS_PLAYER_PLAYING(pedPid)
-                    and (os.time() - playerList[pedPid].hasRespawnedFromDeath_time) >= 3 -- Allows an extra margin of safety, considering the game's usual 0.5-second adjustment for player positions.
+                    PLAYER.IS_PLAYER_PLAYING(player_id)
+                    and (os.time() - playerList[player_id].hasRespawnedFromDeath_time) >= 3 -- Allows an extra margin of safety, considering the game's usual 0.5-second adjustment for player positions.
                 then
-                    playerList[pedPid].isDead = false
-                    playerList[pedPid].hasRespawnedFromDeath_time = nil
+                    playerList[player_id].isDead = false
+                    playerList[player_id].hasRespawnedFromDeath_time = nil
                 end
-            elseif playerList[pedPid].hasRespawnedFromDeath_time then
-                playerList[pedPid].hasRespawnedFromDeath_time = nil
+            elseif playerList[player_id].hasRespawnedFromDeath_time then
+                playerList[player_id].hasRespawnedFromDeath_time = nil
             end
         else
-            playerList[pedPid].isDead = false
-            playerList[pedPid].hasRespawnedFromDeath_time = nil
+            playerList[player_id].isDead = false
+            playerList[player_id].hasRespawnedFromDeath_time = nil
         end
 
         if includeRagdollEvents then
             if
-                PED.IS_PED_RUNNING_RAGDOLL_TASK(pPed)
-                or PED.IS_PED_RAGDOLL(pPed)
+                PED.IS_PED_RUNNING_RAGDOLL_TASK(playerPed)
+                or PED.IS_PED_RAGDOLL(playerPed)
             then
-                playerList[pedPid].isInRagdoll = true
-                playerList[pedPid].hasStandUpFromRagdoll_time = os.clock()
-            elseif playerList[pedPid].isInRagdoll then
-                if (os.clock() - playerList[pedPid].hasStandUpFromRagdoll_time) >= 3 then -- Allows an extra margin of safety, considering the game's usual 0.3-second adjustment for player positions.
-                    playerList[pedPid].isInRagdoll = false
-                    playerList[pedPid].hasStandUpFromRagdoll_time = nil
+                playerList[player_id].isInRagdoll = true
+                playerList[player_id].hasStandUpFromRagdoll_time = os.clock()
+            elseif playerList[player_id].isInRagdoll then
+                if (os.clock() - playerList[player_id].hasStandUpFromRagdoll_time) >= 3 then -- Allows an extra margin of safety, considering the game's usual 0.3-second adjustment for player positions.
+                    playerList[player_id].isInRagdoll = false
+                    playerList[player_id].hasStandUpFromRagdoll_time = nil
                 end
-            elseif playerList[pedPid].hasStandUpFromRagdoll_time then
-                playerList[pedPid].hasStandUpFromRagdoll_time = nil
+            elseif playerList[player_id].hasStandUpFromRagdoll_time then
+                playerList[player_id].hasStandUpFromRagdoll_time = nil
             end
         else
-            playerList[pedPid].isInRagdoll = false
-            playerList[pedPid].hasStandUpFromRagdoll_time = nil
+            playerList[player_id].isInRagdoll = false
+            playerList[player_id].hasStandUpFromRagdoll_time = nil
         end
 
         if
-            playerList[pedPid].isDead
-            or playerList[pedPid].hasRespawnedFromDeath_time
-            or playerList[pedPid].isInRagdoll
-            or playerList[pedPid].hasStandUpFromRagdoll_time
+            playerList[player_id].isDead
+            or playerList[player_id].hasRespawnedFromDeath_time
+            or playerList[player_id].isInRagdoll
+            or playerList[player_id].hasStandUpFromRagdoll_time
         then
-            playerList[pedPid].x = pedPos.x
-            playerList[pedPid].y = pedPos.y
-            playerList[pedPid].z = pedPos.z
+            playerList[player_id].x = player_position.x
+            playerList[player_id].y = player_position.y
+            playerList[player_id].z = player_position.z
 
         elseif
-            pedPos.x ~= playerList[pedPid].x
-            or pedPos.y ~= playerList[pedPid].y
-            or pedPos.z ~= playerList[pedPid].z
+            -- X and Y coordinates change as the player gets closer, so we round to 1 decimal place
+            -- Unfortunately, it adds a false positive if the player moves EXTREMELY slighly.
+            -- TODO: 'round up' only if player is far away at more then a certain distance.
+            roundUp(player_position.x, 2) ~= roundUp(playerList[player_id].x, 2)
+            or roundUp(player_position.y, 2) ~= roundUp(playerList[player_id].y, 2)
+            or roundUp(player_position.z, 2) ~=  roundUp(playerList[player_id].z, 2)
         then
-            playerList[pedPid].lastMovement_time = os.time()
+            playerList[player_id].lastMovement_time = os.time()
 
-            if isMenuAfkPlayerRefValid(pedPid) then
-                deleteMenuAfkPlayerRef(pedPid)
+            if isMenuAfkPlayerRefValid(player_id) then
+                deleteMenuAfkPlayerRef(player_id)
             end
 
-            playerList[pedPid].x = pedPos.x
-            playerList[pedPid].y = pedPos.y
-            playerList[pedPid].z = pedPos.z
+            playerList[player_id].x = player_position.x
+            playerList[player_id].y = player_position.y
+            playerList[player_id].z = player_position.z
 
             goto CONTINUE
         end
 
-        local totalAfkTime = os.time() - playerList[pedPid].lastMovement_time
+        if playerList[player_id].lastMovement_time then
+            totalAfkTime = os.time() - playerList[player_id].lastMovement_time
+        else
+            totalAfkTime = os.time() - playerList[player_id].found_time
+        end
+
+        if playerList[player_id].lastMovement_time then
+            formatedPlayerLastMovementTime = os.date("%H:%M:%S", playerList[player_id].lastMovement_time)
+        end
+
         if totalAfkTime >= afkTimer then
             is_any_afk_found_in_iteration = true
-            logAfkPlayerDetection(pedPid, pedPos, totalAfkTime)
-        elseif isMenuAfkPlayerRefValid(pedPid) then
-            updateMenuAfkPlayerRefHelpText(pedPid, pedPos, totalAfkTime)
+            if not isMenuAfkPlayerRefValid(player_id) then
+                createMenuAfkPlayerRef(player_id, formatedPlayerLastMovementTime, totalAfkTime, player_position)
+            end
+            logAfkPlayerDetection(player_id, formatedPlayerLastMovementTime, totalAfkTime)
+        end
+
+        if isMenuAfkPlayerRefValid(player_id) then
+            updateMenuAfkPlayerRefHelpText(player_id, formatedPlayerLastMovementTime, totalAfkTime, player_position)
         end
 
         :: CONTINUE ::
     end
+
+    has_performed_everyoneAfkAtLaunch = true
 end, function()
-    for pedPid, _ in pairs(playerList) do
-        if isMenuAfkPlayerRefValid(pedPid) then
-            deleteMenuAfkPlayerRef(pedPid)
-        end
-        playerList[pedPid] = nil
+    is_monitor_initialized = false
+    signal_stopTickHandler = true
+    has_performed_everyoneAfkAtLaunch = false
+
+    if callback_playersOnLeave then
+        util.remove_handler(callback_playersOnLeave)
     end
+
+    for player_id, _ in pairs(playerList) do
+        if isMenuAfkPlayerRefValid(player_id) then
+            deleteMenuAfkPlayerRef(player_id)
+        end
+    end
+    playerList = {}
 end)
 local OPTIONS <const> = MY_ROOT:list("Options")
 OPTIONS:divider("---------------------------------------")
