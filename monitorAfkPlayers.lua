@@ -109,14 +109,14 @@ local function logAfkPlayerDetection(player_id, formatedPlayerLastMovementTime, 
     end
 
     if logInConsole then
-        print(string.format(
+        util.toast(string.format(
             "[Lua Script]: %s | Player %-16s is detected AFK! | Last Movement: %s | Total %s AFK: %d",
             TITLE,
             playerList[player_id].name,
             formatedPlayerLastMovementTime,
             pluralize("second", totalAfkTime),
             totalAfkTime
-        ))
+        ), TOAST_CONSOLE)
     end
 end
 
@@ -204,6 +204,7 @@ local MONITOR_AFK_PLAYERS <const> = MY_ROOT:toggle_loop("Monitor AFK Players", {
                 ignoreInteriors
                 and players.is_in_interior(player_id)
             )
+            or players.is_typing(player_id)
             or playerPed == 0
         then
             if isMenuAfkPlayerRefValid(player_id) then
@@ -358,38 +359,38 @@ end, function()
     end
     playerList = {}
 end)
-local OPTIONS <const> = MY_ROOT:list("Options")
-OPTIONS:divider("---------------------------------------")
-OPTIONS:divider("Detection Options:")
-OPTIONS:divider("---------------------------------------")
-OPTIONS:slider("AFK Detection Timer", {"monitorAfkPlayers_afkTimer"}, "The time in second(s) after which a player will be detected as AFK if they haven't moved.", 3, 300, 30, 1, function(value)
+local SETTINGS <const> = MY_ROOT:list("Settings")
+SETTINGS:divider(string.rep("-", 40))
+SETTINGS:divider("Detection Settings:")
+SETTINGS:divider(string.rep("-", 40))
+SETTINGS:slider("AFK Detection Timer", {"monitorAfkPlayers_afkTimer"}, "The time in second(s) after which a player will be detected as AFK if they haven't moved.", 3, 300, 30, 1, function(value)
     afkTimer = value
 end)
-OPTIONS:slider("Cooldown Timer", {"monitorAfkPlayers_cooldownTimer"}, "The time in second(s) before checking again for AFK players after at least one was found.", 0, 60, 1, 1, function(value)
+SETTINGS:slider("Cooldown Timer", {"monitorAfkPlayers_cooldownTimer"}, "The time in second(s) before checking again for AFK players after at least one was found.", 0, 60, 1, 1, function(value)
     cooldownTimer = value
 end)
-OPTIONS:toggle("Everyone AFK at Launch", {}, "When enabled, sets all players as AFK when the script starts.", function(toggle)
+SETTINGS:toggle("Everyone AFK at Launch", {}, "When enabled, sets all players as AFK when the script starts.", function(toggle)
     everyoneAfkAtLaunch = toggle
 end, everyoneAfkAtLaunch)
-OPTIONS:toggle("Include Death Events", {}, "When enabled, AFK detection continues even if a player's character dies.", function(toggle)
+SETTINGS:toggle("Include Death Events", {}, "When enabled, AFK detection continues even if a player's character dies.", function(toggle)
     includeDeathEvents = toggle
 end, includeDeathEvents)
-OPTIONS:toggle("Include Ragdoll Events", {}, "When enabled, AFK detection continues even if a player's character receives a ragdoll effect.", function(toggle)
+SETTINGS:toggle("Include Ragdoll Events", {}, "When enabled, AFK detection continues even if a player's character receives a ragdoll effect.", function(toggle)
     includeRagdollEvents = toggle
 end, includeRagdollEvents)
-OPTIONS:toggle("Ignore Interiors", {}, "When enabled, ignores AFK detection for players inside interiors.", function(toggle)
+SETTINGS:toggle("Ignore Interiors", {}, "When enabled, ignores AFK detection for players inside interiors.", function(toggle)
     ignoreInteriors = toggle
 end, ignoreInteriors)
-OPTIONS:divider("---------------------------------------")
-OPTIONS:divider("Logging Options:")
-OPTIONS:divider("---------------------------------------")
-OPTIONS:toggle("Log Results in Toast Notificaitons", {}, "Logs the AFK players results in Stand's Toast Notifications.", function(toggle)
+SETTINGS:divider(string.rep("-", 40))
+SETTINGS:divider("Logging Settings:")
+SETTINGS:divider(string.rep("-", 40))
+SETTINGS:toggle("Log Results in Toast Notificaitons", {}, "Logs the AFK players results in Stand's Toast Notifications.", function(toggle)
     logInToast = toggle
 end, logInToast)
-OPTIONS:toggle("Log Results in Console Output", {}, "Logs the AFK players results in Stand's Console Output.", function(toggle)
+SETTINGS:toggle("Log Results in Console Output", {}, "Logs the AFK players results in Stand's Console Output.", function(toggle)
     logInConsole = toggle
 end, logInConsole)
 
-MY_ROOT:divider("---------------------------------------")
+MY_ROOT:divider(string.rep("-", 40))
 MY_ROOT:divider("AFK Players List:")
-MY_ROOT:divider("---------------------------------------")
+MY_ROOT:divider(string.rep("-", 40))
